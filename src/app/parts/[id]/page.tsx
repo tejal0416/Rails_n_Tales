@@ -1,0 +1,307 @@
+
+import { Suspense } from "react";
+import { notFound } from "next/navigation";
+import {
+  AlertTriangle,
+  BrainCircuit,
+  Building,
+  CheckCircle2,
+  Wrench,
+  XCircle,
+  Clock,
+  ShieldCheck,
+  Hash,
+  Tag,
+  Package,
+  File,
+  Info,
+  CalendarDays,
+  ShieldAlert,
+  Calendar,
+} from "lucide-react";
+import { getPartById, getVendorById } from "@/lib/data";
+import { generateInspectionSummary } from "@/ai/flows/generate-inspection-summary";
+import type { Inspection, InspectionStatus, Part } from "@/lib/types";
+import { format, formatDistanceToNow, addDays, differenceInDays } from "date-fns";
+
+import { AppLayout } from "@/components/app-layout";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
+
+type PartDetailPageProps = {
+  params: {
+    id: string;
+  };
+};
+
+const statusIcons: Record<string, React.ReactNode> = {
+  Passed: <CheckCircle2 className="h-5 w-5 text-green-500" />,
+  Failed: <XCircle className="h-5 w-5 text-red-500" />,
+  "Needs Repair": <Wrench className="h-5 w-5 text-yellow-500" />,
+  "Not Inspected": <File className="h-5 w-5 text-gray-500" />,
+};
+
+const statusBadgeVariants: Record<string, "default" | "destructive" | "secondary"> = {
+    Passed: "default",
+    Failed: "destructive",
+    "Needs Repair": "secondary",
+    "Not Inspected": "secondary",
+};
+
+async function AiSummary({ part, inspections }: { part: Part, inspections: Inspection[]}) {
+  const inspectionHistory = inspections.map(
+      (insp) => `Date: ${new Date(insp.insp_date).toLocaleDateString()}, Status: ${insp.status}, Inspector: ${insp.inspector_id}`
+    ).join("\n");
+  
+  if (!inspectionHistory) {
+    return (
+        <Card className="bg-primary/10 border-primary/20">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 font-headline text-primary">
+                <BrainCircuit />
+                AI Inspection Analysis
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p>No inspection history available to analyze for part {part.part_name}.</p>
+            </CardContent>
+        </Card>
+    )
+  }
+
+  const { summary } = await generateInspectionSummary({ partName: part.part_name, inspectionHistory });
+
+  return (
+    <Card className="bg-primary/10 border-primary/20">
+        <CardHeader>
+            <CardTitle className="flex items-center gap-2 font-headline text-primary">
+                <BrainCircuit />
+                AI Inspection Analysis
+            </CardTitle>
+        </CardHeader>
+        <CardContent>
+            <p className="text-lg leading-relaxed">{summary}</p>
+        </CardContent>
+    </Card>
+  )
+}
+
+function AiSummarySkeleton() {
+    return (
+        <Card className="bg-primary/10 border-primary/20">
+            <CardHeader>
+                <CardTitle className="flex items-center gap-2 font-headline text-primary">
+                    <BrainCircuit />
+                    AI Inspection Analysis
+                </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+            </CardContent>
+        </Card>
+    )
+}
+
+function WarrantyCard({ part }: { part: Part }) {
+    const mfgDate = new Date(part.mfg_date);
+    const expiryDate = addDays(mfgDate, part.warranty_days);
+    const daysLeft = differenceInDays(expiryDate, new Date());
+    const hasExpired = daysLeft <= 0;
+
+    return (
+        <Card>
+            <CardHeader>
+                <div className="flex items-center justify-between">
+                    <CardTitle className="font-headline flex items-center gap-2">
+                        <ShieldCheck />
+                        Warranty Status
+                    </CardTitle>
+                    <Badge variant="outline" className="flex items-center gap-1 border-primary/50 text-primary text-xs">
+                        <BrainCircuit className="h-3 w-3" />
+                        AI Generated & Refined
+                    </Badge>
+                </div>
+            </CardHeader>
+            <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="flex items-start gap-3">
+                    <Calendar className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                        <span className="font-medium">Manufactured</span>
+                        <p className="text-muted-foreground">{format(mfgDate, "PP")}</p>
+                    </div>
+                </div>
+                <div className="flex items-start gap-3">
+                    <CalendarDays className="h-5 w-5 text-muted-foreground mt-0.5" />
+                    <div>
+                        <span className="font-medium">Warranty Expires</span>
+                        <p className="text-muted-foreground">{format(expiryDate, "PP")}</p>
+                    </div>
+                </div>
+                <div className="flex items-start gap-3">
+                    <ShieldAlert className={cn("h-5 w-5 mt-0.5", hasExpired ? 'text-red-500' : 'text-green-500')} />
+                    <div>
+                        <span className="font-medium">Time Left</span>
+                        <p className={cn("font-bold text-lg", hasExpired ? 'text-red-500' : 'text-green-500')}>
+                            {hasExpired ? "Expired" : `${daysLeft} days`}
+                        </p>
+                    </div>
+                </div>
+            </CardContent>
+        </Card>
+    )
+}
+
+async function PartDetailsContent({ partId }: { partId: string }) {
+    const part = await getPartById(partId);
+    if (!part) {
+        notFound();
+    }
+    const vendor = await getVendorById(part.vendor_id);
+
+    return (
+        <>
+            <div className="md:col-span-2 space-y-8">
+                <Suspense fallback={<AiSummarySkeleton />}>
+                    <AiSummary part={part} inspections={part.inspections} />
+                </Suspense>
+
+                <WarrantyCard part={part} />
+
+            </div>
+
+            <div className="md:col-span-1 space-y-8">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="font-headline">Part Details</CardTitle>
+                         <CardDescription className="flex items-center gap-2 pt-1">
+                            <Info className="w-4 h-4"/>
+                            Data sourced from UDM and TMS portals.
+                        </CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 text-sm">
+                        <div className="flex items-start gap-3">
+                            <Package className="h-5 w-5 text-muted-foreground mt-0.5" />
+                            <div>
+                              <span className="font-medium">Part Type:</span>
+                              <span className="text-muted-foreground ml-2">{part.part_type}</span>
+                            </div>
+                        </div>
+                         <div className="flex items-start gap-3">
+                            <Tag className="h-5 w-5 text-muted-foreground mt-0.5" />
+                            <div>
+                              <span className="font-medium">Lot No:</span>
+                              <span className="text-muted-foreground ml-2 font-mono">{part.lot_no}</span>
+                            </div>
+                        </div>
+                        {vendor && (
+                            <div className="flex items-start gap-3">
+                            <Building className="h-5 w-5 text-muted-foreground mt-0.5" />
+                             <div>
+                              <span className="font-medium">Vendor:</span>
+                              <span className="text-muted-foreground ml-2">{vendor.vendor_name}</span>
+                            </div>
+                            </div>
+                        )}
+                         <div className="flex items-start gap-3">
+                            <Clock className="h-5 w-5 text-muted-foreground mt-0.5" />
+                            <div>
+                                <span className="font-medium">Manufactured:</span>
+                                <span className="text-muted-foreground ml-2">
+                                    {format(new Date(part.mfg_date), "PP")} ({formatDistanceToNow(new Date(part.mfg_date), { addSuffix: true })})
+                                </span>
+                            </div>
+                        </div>
+                        <div className="flex items-start gap-3">
+                            <ShieldCheck className="h-5 w-5 text-muted-foreground mt-0.5" />
+                            <div>
+                                <span className="font-medium">Warranty:</span>
+                                <span className="text-muted-foreground ml-2">{part.warranty_days} days</span>
+                            </div>
+                        </div>
+                         <div className="flex items-start gap-3">
+                            <Hash className="h-5 w-5 text-muted-foreground mt-0.5" />
+                            <div>
+                                <span className="font-medium">TMS Reference:</span>
+                                <span className="text-muted-foreground ml-2 font-mono">{part.tms_ref}</span>
+                            </div>
+                        </div>
+                    </CardContent>
+                </Card>
+            </div>
+        </>
+    );
+}
+
+function PartDetailsSkeleton() {
+    return (
+        <div className="grid gap-8 md:grid-cols-3">
+            <div className="md:col-span-2 space-y-8">
+                <AiSummarySkeleton />
+                <Card>
+                    <CardHeader><CardTitle className="font-headline">Warranty Status</CardTitle></CardHeader>
+                    <CardContent><Skeleton className="h-16 w-full" /></CardContent>
+                </Card>
+            </div>
+            <div className="md:col-span-1 space-y-8">
+                <Card>
+                    <CardHeader>
+                        <CardTitle className="font-headline">Part Details</CardTitle>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 text-sm">
+                        {[...Array(6)].map((_, i) => (
+                             <div className="flex items-start gap-3" key={i}>
+                                <Skeleton className="h-5 w-5 rounded-full" />
+                                <div className="flex-grow space-y-2">
+                                  <Skeleton className="h-4 w-1/3" />
+                                  <Skeleton className="h-4 w-2/3" />
+                                </div>
+                            </div>
+                        ))}
+                    </CardContent>
+                </Card>
+            </div>
+        </div>
+    )
+}
+
+export default async function PartDetailPage({ params }: PartDetailPageProps) {
+  
+  // We can pre-fetch the part name to show in the header while the rest loads.
+  // This is optional but improves UX.
+  const part = await getPartById(params.id);
+  if (!part) {
+    notFound();
+  }
+  
+  return (
+    <AppLayout>
+        <div className="mb-6">
+            <h1 className="font-headline text-2xl font-bold">{part.part_name}</h1>
+            <p className="text-muted-foreground">QR ID: {part.qr_id}</p>
+        </div>
+      <Suspense fallback={<PartDetailsSkeleton />}>
+        <div className="grid gap-8 md:grid-cols-3">
+          <PartDetailsContent partId={params.id} />
+        </div>
+      </Suspense>
+    </AppLayout>
+  );
+}
