@@ -1,3 +1,0 @@
-# SIH
-This program envisages a unified system for laser-based QR code marking on track fittings to enable mobile scanning and identification of elastic rail clips, rail pads, liners, and sleepers, along with integration to the UDM (User Depot Module) on www.ireps.gov.in and the TMS (Track Management System) on www.irecept.gov.in. 
-With the use of AI, the system should extract all essential details of each fitting item, including inspections at all stages—from manufacturing and supply to in-service performance—and pinpoint exceptions for quality monitoring. Laser-based QR codes are already prevalent in other industries.
